@@ -1,0 +1,37 @@
+# === Core Pipeline ===
+yt-dlp>=2024.1.1           # Video downloading
+faster-whisper>=1.0.0      # Fast Whisper transcription with timestamps
+edge-tts>=6.1.9            # Natural TTS via Microsoft Edge (fast mode)
+pydub>=0.25.1              # Audio manipulation
+ffmpeg-python>=0.2.0       # FFmpeg Python bindings
+
+# === Source Separation ===
+demucs>=4.0.0              # Facebook Demucs: vocal/BGM separation (GPU-accelerated)
+
+# === Voice Cloning (--clone-voice flag) ===
+# TTS (Coqui XTTS-v2): zero-shot voice cloning
+# Install: pip install TTS
+# Note: Downloads ~1.8GB model on first run (cached in ~/.local/share/tts/)
+TTS>=0.22.0
+
+# === Translation ===
+# Primary: IndicTrans2 for Indian languages (install separately — see Colab setup)
+# IndicTransToolkit: pip install git+https://github.com/VarunGumma/IndicTransToolkit
+# Fallback: Helsinki-NLP MarianMT (installed via transformers)
+transformers>=4.40.0
+torch>=2.2.0               # PyTorch (GPU build recommended)
+sentencepiece>=0.2.0       # Tokenizer for translation models
+sacremoses>=0.1.1          # Moses tokenizer
+accelerate>=0.27.0         # HuggingFace Accelerate
+
+# === Audio Processing ===
+numpy>=1.26.0              # Numpy array-based audio mixing (fast, sync-accurate)
+soundfile>=0.12.1          # Audio I/O via libsndfile
+
+# === Progress & CLI ===
+rich>=13.7.0               # Beautiful terminal output
+tqdm>=4.66.0               # Progress bars
+click>=8.1.7               # CLI argument parsing
+
+# === Utilities ===
+requests>=2.31.0
