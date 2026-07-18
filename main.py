@@ -224,8 +224,11 @@ def main(
 
     # ── Load checkpoint ──────────────────────────────────────────────────────
     if reset:
-        _ckpt_path(temp_dir).unlink(missing_ok=True)
-        console.print("[yellow]♻  Checkpoint cleared — starting from scratch[/yellow]")
+        if temp_dir.exists():
+            shutil.rmtree(str(temp_dir), ignore_errors=True)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        tts_dir.mkdir(parents=True, exist_ok=True)
+        console.print("[yellow]♻  Checkpoint and temp files cleared — starting from scratch[/yellow]")
 
     ckpt = _load_checkpoint(temp_dir)
     last_step = ckpt.get("last_step", 0)
