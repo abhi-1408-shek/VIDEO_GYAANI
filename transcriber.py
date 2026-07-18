@@ -24,19 +24,6 @@ class Segment:
     language: str  # detected source language
 
 
-def _load_model(model_size: str, device: str, compute_type: str) -> WhisperModel:
-    """Load Whisper model, falling back to CPU if CUDA libraries are missing."""
-    try:
-        return WhisperModel(model_size, device=device, compute_type=compute_type)
-    except Exception as e:
-        err = str(e).lower()
-        if device == "cuda" and ("cublas" in err or "cuda" in err or "library" in err):
-            console.print(f"[yellow]⚠  CUDA unavailable ({e}).[/yellow]")
-            console.print("[yellow]   Falling back to CPU (int8)...[/yellow]")
-            return WhisperModel(model_size, device="cpu", compute_type="int8")
-        raise
-
-
 def transcribe(
     audio_path: str,
     model_size: str = "medium",
@@ -59,7 +46,7 @@ def transcribe(
     if not Path(audio_path).exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    # Resolve device
+    # ── Resolve device ────────────────────────────────────────────────────────
     import torch
     if device == "auto":
         compute_device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -68,26 +55,39 @@ def transcribe(
 
     compute_type = "float16" if compute_device == "cuda" else "int8"
 
+    # ── Load model with CUDA→CPU fallback ────────────────────────────────────
     console.print(f"[bold cyan]🎙  Loading Whisper model ({model_size}) on {compute_device}...[/bold cyan]")
-    model = _load_model(model_size, compute_device, compute_type)
+    try:
+        model = WhisperModel(model_size, device=compute_device, compute_type=compute_type)
+    except Exception as e:
+        err = str(e).lower()
+        if compute_device == "cuda" and any(k in err for k in ("cublas", "cuda", "library", "found")):
+            console.print(f"[yellow]⚠  CUDA load failed ({e}).[/yellow]")
+            console.print("[yellow]   Falling back to CPU (int8)...[/yellow]")
+            compute_device = "cpu"
+            compute_type = "int8"
+            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        else:
+            raise
 
     console.print("[bold cyan]📝 Transcribing audio (this may take a while)...[/bold cyan]")
 
-    # ── Helper: run model.transcribe with CUDA→CPU fallback ─────────────────
-    def run_transcribe(**kwargs):
+    # ── Shared transcribe helper (retries on CPU if CUDA runtime error) ───────
+    def safe_transcribe(**kwargs):
+        nonlocal model, compute_device
         try:
             return model.transcribe(audio_path, **kwargs)
-        except RuntimeError as e:
-            err = str(e).lower()
-            if "cublas" in err or "cuda" in err or "library" in err:
-                nonlocal model
-                console.print(f"[yellow]⚠  CUDA transcription failed. Reloading on CPU...[/yellow]")
+        except RuntimeError as exc:
+            err = str(exc).lower()
+            if compute_device == "cuda" and any(k in err for k in ("cublas", "cuda", "library")):
+                console.print(f"[yellow]⚠  CUDA runtime error. Switching to CPU...[/yellow]")
                 model = WhisperModel(model_size, device="cpu", compute_type="int8")
+                compute_device = "cpu"
                 return model.transcribe(audio_path, **kwargs)
             raise
 
-    # ── First pass: WITH VAD filter ──────────────────────────────────────────
-    segments_gen, info = run_transcribe(
+    # ── First pass: WITH VAD filter ───────────────────────────────────────────
+    segments_gen, info = safe_transcribe(
         beam_size=5,
         language=language,
         word_timestamps=False,
@@ -121,10 +121,10 @@ def transcribe(
 
     console.print(f"[dim]  VAD pass yielded {len(segments)} segments[/dim]")
 
-    # ── If VAD found very few segments, retry WITHOUT VAD ───────────────────
+    # ── If VAD found very few segments, retry WITHOUT VAD ────────────────────
     if len(segments) < 5:
         console.print("[yellow]⚠  Too few segments with VAD — retrying without VAD filter...[/yellow]")
-        segments_gen2, _ = run_transcribe(
+        segments_gen2, _ = safe_transcribe(
             beam_size=5,
             language=language,
             word_timestamps=False,
@@ -151,7 +151,7 @@ def transcribe(
         else:
             console.print(f"[green]✓ Using VAD transcription ({len(segments)} segments)[/green]")
 
-    # ── Deduplicate: Whisper sometimes repeats the same text ────────────────
+    # ── Deduplicate: Whisper sometimes repeats the same text ─────────────────
     deduped = []
     prev_text = ""
     for seg in segments:
