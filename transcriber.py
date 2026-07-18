@@ -2,7 +2,8 @@
 transcriber.py
 ──────────────
 Transcribes an audio file into timestamped segments using faster-whisper.
-Detects the source language automatically.
+Detects the source language automatically. Falls back to CPU if CUDA
+libraries (libcublas) are not available in the current environment.
 """
 
 from dataclasses import dataclass
@@ -23,12 +24,25 @@ class Segment:
     language: str  # detected source language
 
 
+def _load_model(model_size: str, device: str, compute_type: str) -> WhisperModel:
+    """Load Whisper model, falling back to CPU if CUDA libraries are missing."""
+    try:
+        return WhisperModel(model_size, device=device, compute_type=compute_type)
+    except Exception as e:
+        err = str(e).lower()
+        if device == "cuda" and ("cublas" in err or "cuda" in err or "library" in err):
+            console.print(f"[yellow]⚠  CUDA unavailable ({e}).[/yellow]")
+            console.print("[yellow]   Falling back to CPU (int8)...[/yellow]")
+            return WhisperModel(model_size, device="cpu", compute_type="int8")
+        raise
+
+
 def transcribe(
     audio_path: str,
     model_size: str = "medium",
     device: str = "auto",
     language: str = None,
-) -> list[Segment]:
+) -> list:
     """
     Transcribe audio and return a list of timestamped segments.
 
@@ -55,13 +69,25 @@ def transcribe(
     compute_type = "float16" if compute_device == "cuda" else "int8"
 
     console.print(f"[bold cyan]🎙  Loading Whisper model ({model_size}) on {compute_device}...[/bold cyan]")
-    model = WhisperModel(model_size, device=compute_device, compute_type=compute_type)
+    model = _load_model(model_size, compute_device, compute_type)
 
     console.print("[bold cyan]📝 Transcribing audio (this may take a while)...[/bold cyan]")
 
-    # ── First pass: try WITH VAD filter (works well for speech videos) ──────
-    segments_gen, info = model.transcribe(
-        audio_path,
+    # ── Helper: run model.transcribe with CUDA→CPU fallback ─────────────────
+    def run_transcribe(**kwargs):
+        try:
+            return model.transcribe(audio_path, **kwargs)
+        except RuntimeError as e:
+            err = str(e).lower()
+            if "cublas" in err or "cuda" in err or "library" in err:
+                nonlocal model
+                console.print(f"[yellow]⚠  CUDA transcription failed. Reloading on CPU...[/yellow]")
+                model = WhisperModel(model_size, device="cpu", compute_type="int8")
+                return model.transcribe(audio_path, **kwargs)
+            raise
+
+    # ── First pass: WITH VAD filter ──────────────────────────────────────────
+    segments_gen, info = run_transcribe(
         beam_size=5,
         language=language,
         word_timestamps=False,
@@ -69,7 +95,7 @@ def transcribe(
         vad_parameters={
             "min_silence_duration_ms": 200,
             "min_speech_duration_ms": 50,
-            "threshold": 0.25,             # Very sensitive — catch singing too
+            "threshold": 0.25,
             "speech_pad_ms": 100,
         },
     )
@@ -96,16 +122,14 @@ def transcribe(
     console.print(f"[dim]  VAD pass yielded {len(segments)} segments[/dim]")
 
     # ── If VAD found very few segments, retry WITHOUT VAD ───────────────────
-    # This catches music videos and singing where VAD incorrectly filters vocals
     if len(segments) < 5:
         console.print("[yellow]⚠  Too few segments with VAD — retrying without VAD filter...[/yellow]")
-        segments_gen2, info2 = model.transcribe(
-            audio_path,
+        segments_gen2, _ = run_transcribe(
             beam_size=5,
             language=language,
             word_timestamps=False,
-            vad_filter=False,              # No VAD — transcribe everything
-            condition_on_previous_text=True,  # Better coherence
+            vad_filter=False,
+            condition_on_previous_text=True,
         )
 
         segments2: list[Segment] = []
@@ -121,7 +145,6 @@ def transcribe(
 
         console.print(f"[dim]  No-VAD pass yielded {len(segments2)} segments[/dim]")
 
-        # Use whichever pass produced more segments
         if len(segments2) > len(segments):
             segments = segments2
             console.print(f"[green]✓ Using no-VAD transcription ({len(segments)} segments)[/green]")
@@ -132,7 +155,6 @@ def transcribe(
     deduped = []
     prev_text = ""
     for seg in segments:
-        # Skip exact consecutive duplicates
         if seg.text == prev_text:
             continue
         deduped.append(seg)
