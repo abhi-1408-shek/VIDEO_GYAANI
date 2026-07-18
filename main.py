@@ -32,7 +32,7 @@ console = Console()
 
 BANNER = """
 ╔══════════════════════════════════════════════════════════════╗
-║           🎬  AUTOMATED VIDEO DUBBING SYSTEM  🎬             ║
+║           🎬  VIDEO GYAANI  🎬             ║
 ║     Transcribe · Translate · Synthesize · Clone · Dub        ║
 ╚══════════════════════════════════════════════════════════════╝
 """

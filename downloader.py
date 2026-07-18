@@ -10,6 +10,7 @@ Note: Audio is extracted at 44100Hz stereo (full quality) so that:
 """
 
 import os
+import sys
 import subprocess
 from pathlib import Path
 from rich.console import Console
@@ -46,7 +47,7 @@ def download_video(url: str, output_dir: str) -> tuple[str, str]:
 
     # Download the best quality video + audio merged
     download_cmd = [
-        "yt-dlp",
+        sys.executable, "-m", "yt_dlp",
         "--no-playlist",
         "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "--merge-output-format", "mp4",
