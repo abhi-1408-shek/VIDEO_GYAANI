@@ -173,6 +173,13 @@ def _segs_from_json(data: list):
     default=False,
     help="Ignore any saved checkpoint and restart from scratch.",
 )
+@click.option(
+    "--bg-volume",
+    type=float,
+    default=-5.0,
+    show_default=True,
+    help="Volume of background track (claps/laughs) in decibels (e.g. 0.0 is original volume, -18.0 is very quiet).",
+)
 def main(
     url: str,
     output: str,
@@ -183,6 +190,7 @@ def main(
     keep_temp: bool,
     keep_bg: bool,
     reset: bool,
+    bg_volume: float,
 ):
     """
     \b
@@ -310,6 +318,7 @@ def main(
         str(temp_dir),
         no_vocals_path=no_vocals_path,
         keep_background=keep_bg,
+        bg_volume_db=bg_volume,
     )
     mux_audio_into_video(video_path, dubbed_audio_path, final_output)
 
