@@ -17,6 +17,7 @@ Examples:
 import os
 import sys
 import time
+import json
 import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -75,6 +76,44 @@ def print_summary(
     ))
 
 
+# ── Checkpoint helpers ───────────────────────────────────────────────────────
+
+def _ckpt_path(temp_dir: Path) -> Path:
+    return temp_dir / "checkpoint.json"
+
+
+def _load_checkpoint(temp_dir: Path) -> dict:
+    p = _ckpt_path(temp_dir)
+    if p.exists():
+        try:
+            data = json.loads(p.read_text())
+            console.print(f"[dim]📂 Checkpoint found — resuming from step {data.get('last_step', 0) + 1}[/dim]")
+            return data
+        except Exception:
+            pass
+    return {}
+
+
+def _save_checkpoint(temp_dir: Path, step: int, **kwargs):
+    data = _load_checkpoint(temp_dir)
+    data["last_step"] = step
+    data.update(kwargs)
+    _ckpt_path(temp_dir).write_text(json.dumps(data, indent=2))
+
+
+# ── Segment serialisation (for checkpoint) ───────────────────────────────────
+
+def _segs_to_json(segments) -> list:
+    return [{"start": s.start, "end": s.end, "text": s.text, "language": s.language}
+            for s in segments]
+
+
+def _segs_from_json(data: list):
+    from transcriber import Segment
+    return [Segment(start=d["start"], end=d["end"], text=d["text"], language=d["language"])
+            for d in data]
+
+
 @click.command()
 @click.argument("url")
 @click.option(
@@ -128,6 +167,12 @@ def print_summary(
         "when Demucs fails and is used as a fallback."
     ),
 )
+@click.option(
+    "--reset",
+    is_flag=True,
+    default=False,
+    help="Ignore any saved checkpoint and restart from scratch.",
+)
 def main(
     url: str,
     output: str,
@@ -137,6 +182,7 @@ def main(
     clone_voice: bool,
     keep_temp: bool,
     keep_bg: bool,
+    reset: bool,
 ):
     """
     \b
@@ -168,40 +214,74 @@ def main(
     ts           = datetime.now().strftime("%Y%m%d_%H%M%S")
     final_output = str(output_dir / f"dubbed_{ts}.mp4")
 
-    # ── Step 1: Download ─────────────────────────────────────────────────────
+    # ── Load checkpoint ──────────────────────────────────────────────────────
+    if reset:
+        _ckpt_path(temp_dir).unlink(missing_ok=True)
+        console.print("[yellow]♻  Checkpoint cleared — starting from scratch[/yellow]")
+
+    ckpt = _load_checkpoint(temp_dir)
+    last_step = ckpt.get("last_step", 0)
+
     total_steps = 6  # Download, Separate, Transcribe, Translate, Synthesize, Mix
+
+    # ── Step 1: Download ─────────────────────────────────────────────────────
     print_step(1, total_steps, "Downloading Video")
     from downloader import download_video
     video_path, audio_path = download_video(url, str(temp_dir))
+    _save_checkpoint(temp_dir, max(last_step, 1),
+                     video_path=video_path, audio_path=audio_path)
 
     # ── Step 2: Vocal Separation (Demucs) ───────────────────────────────────
-    print_step(2, total_steps, "Separating Vocals & Background (Demucs)")
-    from vocal_separator import separate_vocals
-    vocals_path, no_vocals_path = separate_vocals(audio_path, str(temp_dir / "demucs"))
+    if last_step >= 2 and ckpt.get("vocals_path") and Path(ckpt["vocals_path"]).exists():
+        print_step(2, total_steps, "Separating Vocals & Background (Demucs)")
+        console.print("[green]⚡ Skipping — Demucs output already exists[/green]")
+        vocals_path    = ckpt["vocals_path"]
+        no_vocals_path = ckpt.get("no_vocals_path")
+    else:
+        print_step(2, total_steps, "Separating Vocals & Background (Demucs)")
+        from vocal_separator import separate_vocals
+        vocals_path, no_vocals_path = separate_vocals(audio_path, str(temp_dir / "demucs"))
+        _save_checkpoint(temp_dir, 2,
+                         vocals_path=vocals_path,
+                         no_vocals_path=no_vocals_path)
 
     if no_vocals_path:
         console.print("[green]✓ Background preserved: music/SFX/laughing will appear in final dub[/green]")
-        transcribe_source = vocals_path   # Whisper gets clean speech — better accuracy!
+        transcribe_source = vocals_path
     else:
         console.print("[yellow]⚠  Demucs skipped — transcribing raw audio instead[/yellow]")
         transcribe_source = audio_path
 
     # ── Step 3: Transcribe ───────────────────────────────────────────────────
-    print_step(3, total_steps, "Transcribing Audio")
-    from transcriber import transcribe
-    segments = transcribe(transcribe_source, model_size=model, language=lang)
-
-    if not segments:
-        console.print("[bold red]✗ No speech detected in the video. Exiting.[/bold red]")
-        sys.exit(1)
+    if last_step >= 3 and ckpt.get("segments"):
+        print_step(3, total_steps, "Transcribing Audio")
+        console.print("[green]⚡ Skipping — transcription already complete[/green]")
+        segments = _segs_from_json(ckpt["segments"])
+        console.print(f"[green]✓ Loaded {len(segments)} cached segments[/green]")
+    else:
+        print_step(3, total_steps, "Transcribing Audio")
+        from transcriber import transcribe
+        segments = transcribe(transcribe_source, model_size=model, language=lang)
+        if not segments:
+            console.print("[bold red]✗ No speech detected in the video. Exiting.[/bold red]")
+            sys.exit(1)
+        _save_checkpoint(temp_dir, 3, segments=_segs_to_json(segments))
 
     source_lang = segments[0].language
 
     # ── Step 4: Translate ────────────────────────────────────────────────────
-    print_step(4, total_steps, "Translating to English")
-    from translator import Translator
-    translator = Translator(source_lang=source_lang)
-    translated_segments = translator.translate_segments(segments)
+    if last_step >= 4 and ckpt.get("translated_segments"):
+        print_step(4, total_steps, "Translating to English")
+        console.print("[green]⚡ Skipping — translation already complete[/green]")
+        translated_segments = _segs_from_json(ckpt["translated_segments"])
+        console.print(f"[green]✓ Loaded {len(translated_segments)} cached translated segments[/green]")
+    else:
+        print_step(4, total_steps, "Translating to English")
+        from translator import Translator
+        translator = Translator(source_lang=source_lang)
+        translated_segments = translator.translate_segments(segments)
+        _save_checkpoint(temp_dir, 4,
+                         translated_segments=_segs_to_json(translated_segments))
 
     # ── Step 5: Synthesize ───────────────────────────────────────────────────
     print_step(5, total_steps, "Synthesizing English Speech")
@@ -218,6 +298,8 @@ def main(
         console.print("[bold red]✗ TTS synthesis produced no output. Exiting.[/bold red]")
         sys.exit(1)
 
+    _save_checkpoint(temp_dir, 5)
+
     # ── Step 6: Mix & Mux ───────────────────────────────────────────────────
     print_step(6, total_steps, "Mixing & Muxing Final Video")
     from audio_mixer import build_dubbed_audio, mux_audio_into_video
@@ -226,8 +308,8 @@ def main(
         synthesized,
         video_path,
         str(temp_dir),
-        no_vocals_path=no_vocals_path,   # Demucs background (music/SFX/laughing)
-        keep_background=keep_bg,          # Legacy fallback if Demucs failed
+        no_vocals_path=no_vocals_path,
+        keep_background=keep_bg,
     )
     mux_audio_into_video(video_path, dubbed_audio_path, final_output)
 
