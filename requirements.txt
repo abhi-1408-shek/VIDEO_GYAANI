@@ -10,9 +10,10 @@ demucs>=4.0.0              # Facebook Demucs: vocal/BGM separation (GPU-accelera
 
 # === Voice Cloning (--clone-voice flag) ===
 # TTS (Coqui XTTS-v2): zero-shot voice cloning
-# Install: pip install TTS
+# IMPORTANT: Install separately to avoid numpy conflict:
+#   uv pip install TTS --no-deps
+#   uv pip install trainer coqpit bangla hangul-romanize jamo gruut gruut-lang-de gruut-lang-en gruut-lang-es gruut-lang-fr
 # Note: Downloads ~1.8GB model on first run (cached in ~/.local/share/tts/)
-TTS>=0.22.0
 
 # === Translation ===
 # Primary: IndicTrans2 for Indian languages (install separately — see Colab setup)
