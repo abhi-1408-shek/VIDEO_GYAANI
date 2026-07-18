@@ -195,6 +195,12 @@ def _synthesize_xtts(
     This achieves zero-shot voice cloning without any diarization library.
     """
     import torch
+    
+    # ── PyTorch 2.6 compat for Coqui TTS ──
+    # PyTorch 2.6 defaults torch.load(weights_only=True), which breaks XTTS.
+    import functools
+    torch.load = functools.partial(torch.load, weights_only=False)
+    
     from TTS.api import TTS as CoquiTTS
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
