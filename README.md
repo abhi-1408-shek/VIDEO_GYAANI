@@ -22,10 +22,10 @@ A Python pipeline that takes any YouTube video (in any language) and produces an
 
 Below are examples demonstrating the pipeline's voice cloning and background audio preservation capabilities:
 
-- **Original Video:** [Link to Original Video]
-- **Dubbed Output:** [Link to Dubbed Video]
+- **Original Video:** [Watch Original Video](./examples/original_video.mp4)
+- **Dubbed Output:** [Watch Dubbed Video](./examples/dubbed_video.mp4)
 
-*(Upload your original and dubbed output videos here to showcase the system's quality.)*
+*(Click the links above to watch the videos directly on GitHub!)*
 
 ---
 
