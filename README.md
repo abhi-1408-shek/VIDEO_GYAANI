@@ -1,13 +1,13 @@
-# 🎬 Automated Video Dubbing System
+# Automated Video Dubbing System
 
 A Python pipeline that takes any YouTube video (in any language) and produces an English-dubbed version with natural-sounding speech, precisely synchronized to the original video.
 
 ---
 
-## 📋 What It Does
+## What It Does
 
 1. **Downloads** the YouTube video using `yt-dlp`
-2. **Separates** vocals from background using `Demucs` (music/SFX/laughing preserved perfectly)
+2. **Separates** vocals from background using `Demucs` (music, SFX, and laughing are preserved perfectly)
 3. **Transcribes** clean speech with timestamps using `faster-whisper` (Whisper large-v2, GPU)
 4. **Translates** to English using **IndicTrans2** (Indian languages) or Helsinki-NLP MarianMT (others)
 5. **Synthesizes** English speech — two modes:
@@ -18,7 +18,18 @@ A Python pipeline that takes any YouTube video (in any language) and produces an
 
 ---
 
-## 🚀 Quick Start (Google Colab)
+## Examples
+
+Below are examples demonstrating the pipeline's voice cloning and background audio preservation capabilities:
+
+- **Original Video:** [Link to Original Video]
+- **Dubbed Output:** [Link to Dubbed Video]
+
+*(Upload your original and dubbed output videos here to showcase the system's quality.)*
+
+---
+
+## Quick Start (Google Colab)
 
 Paste this into a Colab cell and run it once per session:
 
@@ -54,7 +65,7 @@ os.chdir("/content/video_dubber")
 
 ---
 
-## 🖥️ Local Setup
+## Local Setup
 
 ### Prerequisites
 
@@ -94,7 +105,7 @@ python main.py "https://www.youtube.com/watch?v=VIDEO_ID" --output ./my_dubs
 
 ---
 
-## 🛠️ CLI Options
+## CLI Options
 
 | Option | Default | Description |
 |---|---|---|
@@ -104,10 +115,13 @@ python main.py "https://www.youtube.com/watch?v=VIDEO_ID" --output ./my_dubs
 | `--voice, -v` | `default` | TTS voice: `default`, `male`, `female`, `male_alt`, `female_alt`, `neutral` |
 | `--keep-temp` | `False` | Keep intermediate files after processing |
 | `--keep-bg` | `False` | Blend original audio at low volume under the dubbed speech |
+| `--bg-volume` | `-5.0` | Volume of background track (claps/laughs/music) in decibels |
+| `--reset` | `False` | Clear cached files and restart processing from scratch |
+| `--clone-voice` | `False` | Use Coqui XTTS-v2 for zero-shot voice cloning |
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 main.py           ← CLI entry point (orchestrates the pipeline)
@@ -122,8 +136,8 @@ main.py           ← CLI entry point (orchestrates the pipeline)
 ### Key Design Decisions
 
 - **Numpy buffer mixing**: The entire video duration is allocated as a numpy float32 array. Each TTS segment is written at its **exact original millisecond timestamp** — mathematically perfect sync regardless of TTS length.
-- **ffmpeg atempo time-stretching**: If a TTS segment is longer than its original time slot, it's time-stretched using ffmpeg's `atempo` filter (much higher quality than pydub's `speedup`). Capped at 2x speed.
-- **Hard trim at next segment boundary**: If a stretched segment would overflow into the next speaker's slot, it's hard-trimmed. Better to cut a word than drift out of sync for the rest of the video.
+- **ffmpeg atempo time-stretching**: If a TTS segment is longer than its original time slot, it is time-stretched using ffmpeg's `atempo` filter (much higher quality than pydub's `speedup`). Capped at 2x speed.
+- **Hard trim at next segment boundary**: If a stretched segment would overflow into the next speaker's slot, it is hard-trimmed. Better to cut a word than drift out of sync for the rest of the video.
 - **IndicTrans2 for Indian languages**: Specifically designed for Hindi, Punjabi, Marathi, Gujarati, Tamil, Telugu, etc. Produces far more natural English translations than generic models.
 - **Adaptive TTS rate**: Before TTS synthesis, we estimate how much a segment will need to be compressed. If >1.3x compression is needed, we request a faster speaking rate from Edge TTS, reducing the load on post-processing.
 - **Two-voice speaker detection**: Uses silence gaps (>2.5s) as a heuristic for speaker changes and alternates between a male and female voice — no diarization library needed.
@@ -132,7 +146,7 @@ main.py           ← CLI entry point (orchestrates the pipeline)
 
 ---
 
-## 🌐 Supported Languages
+## Supported Languages
 
 Any language supported by Whisper for transcription (~100 languages). For translation:
 
@@ -141,7 +155,7 @@ Any language supported by Whisper for transcription (~100 languages). For transl
 
 ---
 
-## 🎤 Available Voices
+## Available Voices
 
 | Key | Voice | Description |
 |---|---|---|
@@ -156,11 +170,11 @@ Any language supported by Whisper for transcription (~100 languages). For transl
 
 ---
 
-## 📂 Output Structure
+## Output Structure
 
 ```
 output/
-├── dubbed_20240718_120000.mp4    ← ✅ Final dubbed video
+├── dubbed_20240718_120000.mp4    ← Final dubbed video
 └── temp/                         ← Intermediate files (deleted unless --keep-temp)
     ├── source_video.mp4
     ├── source_audio.wav
@@ -173,7 +187,7 @@ output/
 
 ---
 
-## ⚡ Performance (Google Colab T4 GPU)
+## Performance (Google Colab T4 GPU)
 
 | Step | Tool | Time (30-min video) | Time (2-hour video) |
 |---|---|---|---|
@@ -186,7 +200,7 @@ output/
 
 ---
 
-## 📦 Dependencies
+## Dependencies
 
 | Package | Purpose |
 |---|---|
